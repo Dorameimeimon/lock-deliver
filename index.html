@@ -141,22 +141,18 @@ const PIVOT = BLOB.pivot, ALL_MONTHS = BLOB.months, ORDER = BLOB.city_order;
 const PALETTE = ["#ef4444","#3b82f6","#22c55e","#f59e0b","#8b5cf6","#ec4899",
                  "#14b8a6","#f97316","#6366f1","#a3e635","#06b6d4","#d946ef"];
 
-// 稳定的集团配色：同一集团名在所有图表中颜色一致（锁单图与交付图上下对齐）
-const GROUP_COLOR = (function(){
+// 同城内同一集团颜色一致：按城市分组，组内按稳定顺序用原始 12 色调色板取色
+// （锁单图与交付图共用同一城市的颜色映射，因此同一集团上下两图颜色相同）
+const CITY_COLOR = {};
+ORDER.forEach(c => {
+  const v = PIVOT[c];
   const names = [];
-  ORDER.forEach(c => {
-    const v = PIVOT[c];
-    v.lock.shares.forEach(s => { if (names.indexOf(s.name) < 0) names.push(s.name); });
-    v.deliver.shares.forEach(s => { if (names.indexOf(s.name) < 0) names.push(s.name); });
-  });
+  v.lock.shares.forEach(s => { if (names.indexOf(s.name) < 0) names.push(s.name); });
+  v.deliver.shares.forEach(s => { if (names.indexOf(s.name) < 0) names.push(s.name); });
   const map = {};
-  const GOLDEN = 137.508;
-  names.forEach((nm, i) => {
-    const hue = (i * GOLDEN) % 360;
-    map[nm] = "hsl(" + hue.toFixed(1) + ", 62%, 47%)";
-  });
-  return map;
-})();
+  names.forEach((nm, i) => { map[nm] = PALETTE[i % PALETTE.length]; });
+  CITY_COLOR[c] = map;
+});
 
 // 返回 1/2/2.5/5/10 × 10^k 形式的“整齐”刻度步长；roundUp=true 时取不小于 x 的最小值
 function niceNum(x, roundUp){
@@ -199,7 +195,7 @@ function getRange(){
   return ALL_MONTHS.slice(si, ei+1);
 }
 
-function renderChart(data, months, chartId, legendId){
+function renderChart(data, months, chartId, legendId, city){
   const d = data;
   const cont = document.getElementById(chartId);
   const W = Math.max(cont.clientWidth || 1000, 320);
@@ -252,7 +248,7 @@ function renderChart(data, months, chartId, legendId){
 
   // lines + points（0% 月份不绘制点位与连线，仅保留有数据的部分）
   d.shares.forEach((s, idx)=>{
-    const color = GROUP_COLOR[s.name];
+    const color = CITY_COLOR[city][s.name];
     let pts = [];
     months.forEach((m,i)=>{
       const v = s.values[m];
@@ -286,7 +282,7 @@ function renderChart(data, months, chartId, legendId){
         ly = lastLabelY + minGap; // push down to avoid overlap
       }
       lastLabelY = ly;
-      const color = GROUP_COLOR[d.shares[p.idx].name];
+      const color = CITY_COLOR[city][d.shares[p.idx].name];
       let anchor = "middle", lx = x;
       if (i===0){ anchor = "start"; lx = x + 3; }
       else if (i===n-1){ anchor = "end"; lx = x - 3; }
@@ -299,7 +295,7 @@ function renderChart(data, months, chartId, legendId){
   // legend above
   let legendHtml = "";
   d.shares.forEach((s, idx)=>{
-    const color = GROUP_COLOR[s.name];
+    const color = CITY_COLOR[city][s.name];
     legendHtml += `<span><i style="background:${color}"></i>${s.name}</span>`;
   });
   document.getElementById(legendId).innerHTML = legendHtml;
@@ -361,8 +357,8 @@ function render(){
   document.getElementById("titleLock").textContent = city + "各集团锁单占比（%）";
   document.getElementById("titleDeliver").textContent = city + "各集团交付占比（%）";
 
-  renderChart(d.lock, months, "chartLock", "chartLegendLock");
-  renderChart(d.deliver, months, "chartDeliver", "chartLegendDeliver");
+  renderChart(d.lock, months, "chartLock", "chartLegendLock", city);
+  renderChart(d.deliver, months, "chartDeliver", "chartLegendDeliver", city);
 }
 
 citySel.addEventListener("change", render);
