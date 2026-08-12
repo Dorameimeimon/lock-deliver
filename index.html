@@ -292,9 +292,17 @@ function renderChart(data, months, chartId, legendId, city){
   svg += `</svg>`;
   cont.innerHTML = svg;
 
-  // legend above
+  // legend above：上下两图图例顺序保持一致（统一按该城市锁单图集团顺序排）
   let legendHtml = "";
-  d.shares.forEach((s, idx)=>{
+  const currentNames = new Set(d.shares.map(s => s.name));
+  const lockShares = PIVOT[city].lock.shares;
+  lockShares.forEach(s => {
+    if (!currentNames.has(s.name)) return;
+    const color = CITY_COLOR[city][s.name];
+    legendHtml += `<span><i style="background:${color}"></i>${s.name}</span>`;
+  });
+  d.shares.forEach(s => {
+    if (lockShares.find(ls => ls.name === s.name)) return;
     const color = CITY_COLOR[city][s.name];
     legendHtml += `<span><i style="background:${color}"></i>${s.name}</span>`;
   });
