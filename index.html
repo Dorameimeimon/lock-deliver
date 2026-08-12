@@ -141,6 +141,23 @@ const PIVOT = BLOB.pivot, ALL_MONTHS = BLOB.months, ORDER = BLOB.city_order;
 const PALETTE = ["#ef4444","#3b82f6","#22c55e","#f59e0b","#8b5cf6","#ec4899",
                  "#14b8a6","#f97316","#6366f1","#a3e635","#06b6d4","#d946ef"];
 
+// 稳定的集团配色：同一集团名在所有图表中颜色一致（锁单图与交付图上下对齐）
+const GROUP_COLOR = (function(){
+  const names = [];
+  ORDER.forEach(c => {
+    const v = PIVOT[c];
+    v.lock.shares.forEach(s => { if (names.indexOf(s.name) < 0) names.push(s.name); });
+    v.deliver.shares.forEach(s => { if (names.indexOf(s.name) < 0) names.push(s.name); });
+  });
+  const map = {};
+  const GOLDEN = 137.508;
+  names.forEach((nm, i) => {
+    const hue = (i * GOLDEN) % 360;
+    map[nm] = "hsl(" + hue.toFixed(1) + ", 62%, 47%)";
+  });
+  return map;
+})();
+
 // 返回 1/2/2.5/5/10 × 10^k 形式的“整齐”刻度步长；roundUp=true 时取不小于 x 的最小值
 function niceNum(x, roundUp){
   if (x <= 0) return 1;
@@ -235,7 +252,7 @@ function renderChart(data, months, chartId, legendId){
 
   // lines + points（0% 月份不绘制点位与连线，仅保留有数据的部分）
   d.shares.forEach((s, idx)=>{
-    const color = PALETTE[idx % PALETTE.length];
+    const color = GROUP_COLOR[s.name];
     let pts = [];
     months.forEach((m,i)=>{
       const v = s.values[m];
@@ -269,7 +286,7 @@ function renderChart(data, months, chartId, legendId){
         ly = lastLabelY + minGap; // push down to avoid overlap
       }
       lastLabelY = ly;
-      const color = PALETTE[p.idx % PALETTE.length];
+      const color = GROUP_COLOR[d.shares[p.idx].name];
       let anchor = "middle", lx = x;
       if (i===0){ anchor = "start"; lx = x + 3; }
       else if (i===n-1){ anchor = "end"; lx = x - 3; }
@@ -282,7 +299,7 @@ function renderChart(data, months, chartId, legendId){
   // legend above
   let legendHtml = "";
   d.shares.forEach((s, idx)=>{
-    const color = PALETTE[idx % PALETTE.length];
+    const color = GROUP_COLOR[s.name];
     legendHtml += `<span><i style="background:${color}"></i>${s.name}</span>`;
   });
   document.getElementById(legendId).innerHTML = legendHtml;
