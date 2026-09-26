@@ -85,6 +85,33 @@
   .chart-legend span { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:#3a4a63; }
   .chart-legend i { width:14px; height:4px; border-radius:2px; display:inline-block; }
   #chart svg { display:block; }
+  .empty { padding:26px 0; text-align:center; color:#9aa6b8; font-size:13px; }
+  /* 集团多选筛选 */
+  .gfilter { position:relative; display:inline-block; }
+  .gbtn {
+    font-size:12px; padding:6px 12px; border:1px solid #d7d9e6; background:#fff;
+    border-radius:6px; color:#3a4a63; cursor:pointer; font-family:inherit;
+  }
+  .gbtn:hover { border-color:#bfc9d9; }
+  .gbtn.filtered { border-color:#f59e0b; color:#b45309; background:#fffbeb; }
+  .gpanel {
+    position:absolute; z-index:40; top:calc(100% + 6px); left:0; min-width:200px;
+    max-height:300px; overflow:auto; background:#fff; border:1px solid #dde3ec;
+    border-radius:8px; box-shadow:0 6px 18px rgba(20,34,59,.12); padding:8px; display:none;
+  }
+  .gpanel.open { display:block; }
+  .gpanel .gx { display:flex; gap:6px; margin-bottom:6px; }
+  .gpanel .gx button {
+    flex:1; font-size:11px; padding:4px 6px; border:1px solid #dde3ec;
+    background:#f8fafc; border-radius:5px; cursor:pointer; color:#3a4a63; font-family:inherit;
+  }
+  .gpanel .gx button:hover { background:#eef2f8; }
+  .gpanel label {
+    display:flex; align-items:center; gap:7px; font-size:12px; color:#3a4a63;
+    padding:4px 5px; border-radius:4px; cursor:pointer; user-select:none;
+  }
+  .gpanel label:hover { background:#f3f6fb; }
+  .gpanel input[type="checkbox"] { accent-color:#ef4444; width:13px; height:13px; }
 </style>
 </head>
 <body>
@@ -98,6 +125,16 @@
     <select id="startSel"></select>
     <span class="sep">至</span>
     <select id="endSel"></select>
+    <div class="gfilter">
+      <button type="button" class="gbtn" id="gBtn">集团</button>
+      <div class="gpanel" id="gPanel">
+        <div class="gx">
+          <button type="button" id="gAll">全选</button>
+          <button type="button" id="gNone">清空</button>
+        </div>
+        <div id="gList"></div>
+      </div>
+    </div>
     <div class="summary" id="summary"></div>
   </div>
 
@@ -185,6 +222,91 @@ ALL_MONTHS.forEach(m => {
 });
 startSel.value = "2025-01";
 endSel.value = "2026-08";
+
+/* ---------- 集团多选筛选 ---------- */
+const gBtn    = document.getElementById("gBtn");
+const gPanel  = document.getElementById("gPanel");
+const gList   = document.getElementById("gList");
+const gAllBtn = document.getElementById("gAll");
+const gNoneBtn= document.getElementById("gNone");
+
+// 每个城市各自记住勾选状态（默认全选），切换城市不丢失
+const GROUP_SEL = {};
+function cityGroupNames(city){ return PIVOT[city].lock.shares.map(s => s.name); }
+function ensureSel(city){
+  if (!GROUP_SEL[city]) GROUP_SEL[city] = new Set(cityGroupNames(city));
+  return GROUP_SEL[city];
+}
+function syncGBtn(city){
+  const names = cityGroupNames(city), n = GROUP_SEL[city].size;
+  gBtn.textContent = "集团 " + n + "/" + names.length;
+  gBtn.classList.toggle("filtered", n !== names.length);
+}
+function buildGroupList(){
+  const city = citySel.value;
+  ensureSel(city);
+  const sel = GROUP_SEL[city];
+  gList.innerHTML = "";
+  cityGroupNames(city).forEach(nm => {
+    const lab = document.createElement("label");
+    const cb  = document.createElement("input");
+    cb.type = "checkbox"; cb.value = nm; cb.checked = sel.has(nm);
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(nm));
+    gList.appendChild(lab);
+  });
+  syncGBtn(city);
+}
+
+// 按所选集团重建数据：合计 = 所选集团之和，占比 = 集团 / 所选合计
+function filterByGroups(data, picked){
+  const byName = {};
+  data.groups.forEach(g => byName[g.name] = g);
+  const groups = picked.map(nm => byName[nm]).filter(Boolean);
+  const sumTotal = {};
+  ALL_MONTHS.forEach(m => {
+    let t = 0;
+    groups.forEach(g => { t += (g.values[m] || 0); });
+    sumTotal[m] = t;
+  });
+  const shares = groups.map(g => {
+    const vals = {};
+    ALL_MONTHS.forEach(m => {
+      const t = sumTotal[m];
+      vals[m] = t ? Math.round((g.values[m] || 0) / t * 1000) / 10 : null;
+    });
+    return { name: g.name, values: vals };
+  });
+  return { groups: groups, shares: shares, sumTotal: sumTotal };
+}
+
+gBtn.addEventListener("click", e => {
+  e.stopPropagation();
+  gPanel.classList.toggle("open");
+});
+gList.addEventListener("change", e => {
+  if (!e.target || e.target.type !== "checkbox") return;
+  const city = citySel.value;
+  const sel = ensureSel(city);
+  if (e.target.checked) sel.add(e.target.value); else sel.delete(e.target.value);
+  syncGBtn(city);
+  render();
+});
+gAllBtn.addEventListener("click", () => {
+  const city = citySel.value;
+  ensureSel(city);
+  cityGroupNames(city).forEach(nm => GROUP_SEL[city].add(nm));
+  buildGroupList(); render();
+});
+gNoneBtn.addEventListener("click", () => {
+  const city = citySel.value;
+  ensureSel(city);
+  cityGroupNames(city).forEach(nm => GROUP_SEL[city].delete(nm));
+  buildGroupList(); render();
+});
+document.addEventListener("click", e => {
+  if (!e.target.closest || !e.target.closest(".gfilter")) gPanel.classList.remove("open");
+});
 
 function fmt(n){ return n.toLocaleString("zh-CN"); }
 
@@ -309,7 +431,7 @@ function renderChart(data, months, chartId, legendId, city){
   document.getElementById(legendId).innerHTML = legendHtml;
 }
 
-function renderTable(headEl, bodyEl, cgEl, data, city, months, cornerLabel){
+function renderTable(headEl, bodyEl, cgEl, data, city, months, cornerLabel, sumTotal){
   // 列宽
   let cgh = '<col class="col-lbl">';
   for (let i=0;i<months.length;i++) cgh += '<col class="col-m">';
@@ -323,9 +445,10 @@ function renderTable(headEl, bodyEl, cgEl, data, city, months, cornerLabel){
   // 表体
   bodyEl.innerHTML = "";
   const trCity = document.createElement("tr"); trCity.className = "cityrow";
-  const cLbl = document.createElement("th"); cLbl.className="lbl"; cLbl.textContent = city; cLbl.title = city; trCity.appendChild(cLbl);
+  const cLbl = document.createElement("th"); cLbl.className="lbl";
+  cLbl.textContent = city; cLbl.title = city; trCity.appendChild(cLbl);
   months.forEach(m => {
-    const v = data.city_total[m];
+    const v = sumTotal[m];
     const td = document.createElement("td"); td.textContent = (v===0) ? "" : fmt(v); trCity.appendChild(td);
   });
   bodyEl.appendChild(trCity);
@@ -351,28 +474,64 @@ function renderTable(headEl, bodyEl, cgEl, data, city, months, cornerLabel){
   });
 }
 
+function setEmpty(headEl, bodyEl, cgEl, months, msg){
+  cgEl.innerHTML = '<col class="col-lbl">' + months.map(()=>'<col class="col-m">').join("");
+  headEl.innerHTML = "";
+  bodyEl.innerHTML = "";
+  const tr = document.createElement("tr");
+  const td = document.createElement("td");
+  td.className = "empty"; td.colSpan = months.length + 1; td.textContent = msg;
+  tr.appendChild(td); bodyEl.appendChild(tr);
+}
+
 function render(){
   const city = citySel.value;
   const d = PIVOT[city];
   const months = getRange();
   const summary = document.getElementById("summary");
 
-  renderTable(document.getElementById("headLock"), document.getElementById("bodyLock"), document.getElementById("cgLock"), d.lock, city, months, "锁单");
-  renderTable(document.getElementById("headDeliver"), document.getElementById("bodyDeliver"), document.getElementById("cgDeliver"), d.deliver, city, months, "交付");
+  ensureSel(city);
+  const names = cityGroupNames(city);
+  const picked = names.filter(nm => GROUP_SEL[city].has(nm));
+  const isFiltered = picked.length !== names.length;
 
-  summary.innerHTML = "已选城市：<b>"+city+"</b> ｜ 集团数：<b>"+d.lock.groups.length+"</b> ｜ 时间范围：<b>"+months[0]+" ~ "+months[months.length-1]+"</b>";
+  // 锁单 / 交付分别按所选集团重建（合计与占比都只围绕所选集团）
+  const fl = picked.length ? filterByGroups(d.lock, picked) : null;
+  const fd = picked.length ? filterByGroups(d.deliver, picked) : null;
 
-  document.getElementById("titleLock").textContent = city + "各集团锁单占比（%）";
-  document.getElementById("titleDeliver").textContent = city + "各集团交付占比（%）";
+  const obj = {
+    headLock: document.getElementById("headLock"), bodyLock: document.getElementById("bodyLock"), cgLock: document.getElementById("cgLock"),
+    headDeliver: document.getElementById("headDeliver"), bodyDeliver: document.getElementById("bodyDeliver"), cgDeliver: document.getElementById("cgDeliver")
+  };
 
-  renderChart(d.lock, months, "chartLock", "chartLegendLock", city);
-  renderChart(d.deliver, months, "chartDeliver", "chartLegendDeliver", city);
+  if (!picked.length){
+    setEmpty(obj.headLock, obj.bodyLock, obj.cgLock, months, "请至少勾选一个集团");
+    setEmpty(obj.headDeliver, obj.bodyDeliver, obj.cgDeliver, months, "请至少勾选一个集团");
+    document.getElementById("chartLock").innerHTML = "";
+    document.getElementById("chartDeliver").innerHTML = "";
+    document.getElementById("chartLegendLock").innerHTML = "";
+    document.getElementById("chartLegendDeliver").innerHTML = "";
+  } else {
+    renderTable(obj.headLock, obj.bodyLock, obj.cgLock, fl, city, months, "锁单", fl.sumTotal);
+    renderTable(obj.headDeliver, obj.bodyDeliver, obj.cgDeliver, fd, city, months, "交付", fd.sumTotal);
+    renderChart(fl, months, "chartLock", "chartLegendLock", city);
+    renderChart(fd, months, "chartDeliver", "chartLegendDeliver", city);
+  }
+
+  const rangeTxt = months[0] + " ~ " + months[months.length-1];
+  summary.innerHTML = "已选城市：<b>"+city+"</b> ｜ 集团：<b>"+picked.length+"/"+names.length+"</b>"
+    + (isFiltered ? "（仅显示所选集团）" : "")
+    + " ｜ 时间范围：<b>"+rangeTxt+"</b>";
+
+  document.getElementById("titleLock").textContent = city + (isFiltered ? "所选集团" : "各集团") + "锁单占比（%）";
+    document.getElementById("titleDeliver").textContent = city + (isFiltered ? "所选集团" : "各集团") + "交付占比（%）";
 }
 
-citySel.addEventListener("change", render);
+citySel.addEventListener("change", () => { buildGroupList(); render(); });
 startSel.addEventListener("change", render);
 endSel.addEventListener("change", render);
 window.addEventListener("resize", render);
+buildGroupList();
 render();
 </script>
 </body>
